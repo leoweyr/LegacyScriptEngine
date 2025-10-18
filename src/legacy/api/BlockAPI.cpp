@@ -15,14 +15,11 @@
 #include "mc/world/level/ChunkBlockPos.h"
 #include "mc/world/level/block/BedrockBlockNames.h"
 #include "mc/world/level/block/Block.h"
-#include "mc/world/level/block/DetectionRule.h"
 #include "mc/world/level/block/LiquidReaction.h"
+#include "mc/world/level/block/VanillaBlockTags.h"
 #include "mc/world/level/block/actor/BlockActor.h"
 #include "mc/world/level/block/block_serialization_utils/BlockSerializationUtils.h"
-#include "mc/world/level/block/components/BlockComponentDirectData.h"
 #include "mc/world/level/chunk/LevelChunk.h"
-#include "mc/world/level/dimension/Dimension.h"
-#include "mc/world/level/dimension/DimensionHeightRange.h"
 
 #include <exception>
 
@@ -171,29 +168,28 @@ Local<Value> BlockClass::getPos() {
 
 Local<Value> BlockClass::getTileData() {
     try {
-        // preloaded
-        return Number::newNumber(block->getLegacyBlock().getVariant(*block));
+        return Number::newNumber(block->getBlockType().getVariant(*block));
     }
     CATCH("Fail in getTileData!");
 }
 
 Local<Value> BlockClass::getVariant() {
     try {
-        return Number::newNumber(block->getLegacyBlock().getVariant(*block));
+        return Number::newNumber(block->getBlockType().getVariant(*block));
     }
     CATCH("Fail in getVariant!");
 }
 
 Local<Value> BlockClass::getTranslucency() {
     try {
-        return Number::newNumber(block->getLegacyBlock().mTranslucency);
+        return Number::newNumber(block->getBlockType().mTranslucency);
     }
     CATCH("Fail in getTranslucency!");
 }
 
 Local<Value> BlockClass::getThickness() {
     try {
-        return Number::newNumber(block->getLegacyBlock().mThickness);
+        return Number::newNumber(block->getBlockType().mThickness);
     }
     CATCH("Fail in getThickness!");
 }
@@ -207,77 +203,77 @@ Local<Value> BlockClass::isAir() {
 
 Local<Value> BlockClass::isBounceBlock() {
     try {
-        return Boolean::newBoolean(block->getLegacyBlock().isBounceBlock());
+        return Boolean::newBoolean(block->getBlockType().isBounceBlock());
     }
     CATCH("Fail in isBounceBlock!");
 }
 
 Local<Value> BlockClass::isButtonBlock() {
     try {
-        return Boolean::newBoolean(block->isButtonBlock());
+        return Boolean::newBoolean(block->getBlockType().isButtonBlock());
     }
     CATCH("Fail in isButtonBlock!");
 }
 
 Local<Value> BlockClass::isCropBlock() {
     try {
-        return Boolean::newBoolean(block->isCropBlock());
+        return Boolean::newBoolean(block->hasTag(VanillaBlockTags::Crop()));
     }
     CATCH("Fail in isCropBlock!");
 }
 
 Local<Value> BlockClass::isDoorBlock() {
     try {
-        return Boolean::newBoolean(block->isDoorBlock());
+        return Boolean::newBoolean(block->getBlockType().isDoorBlock());
     }
     CATCH("Fail in isDoorBlock!");
 }
 
 Local<Value> BlockClass::isFenceBlock() {
     try {
-        return Boolean::newBoolean(block->getLegacyBlock().isFenceBlock());
+        return Boolean::newBoolean(block->getBlockType().isFenceBlock());
     }
     CATCH("Fail in isFenceBlock!");
 }
 
 Local<Value> BlockClass::isFenceGateBlock() {
     try {
-        return Boolean::newBoolean(block->getLegacyBlock().isFenceGateBlock());
+        return Boolean::newBoolean(block->getBlockType().isFenceGateBlock());
     }
     CATCH("Fail in isFenceGateBlock!");
 }
 
 Local<Value> BlockClass::isThinFenceBlock() {
     try {
-        return Boolean::newBoolean(block->getLegacyBlock().isThinFenceBlock());
+        return Boolean::newBoolean(block->getBlockType().isThinFenceBlock());
     }
     CATCH("Fail in isThinFenceBlock!");
 }
 
 Local<Value> BlockClass::isHeavyBlock() {
     try {
-        return Boolean::newBoolean(block->getLegacyBlock().mFalling);
+        return Boolean::newBoolean(block->getBlockType().mFalling);
     }
     CATCH("Fail in isHeavyBlock!");
 }
 
 Local<Value> BlockClass::isStemBlock() {
     try {
-        return Boolean::newBoolean(block->getLegacyBlock().isStemBlock());
+        return Boolean::newBoolean(block->getBlockType().isStemBlock());
     }
     CATCH("Fail in isStemBlock!");
 }
 
 Local<Value> BlockClass::isSlabBlock() {
     try {
-        return Boolean::newBoolean(block->isSlabBlock());
+        return Boolean::newBoolean(block->getBlockType().isSlabBlock());
     }
     CATCH("Fail in isSlabBlock!");
 }
 
 Local<Value> BlockClass::isUnbreakable() {
     try {
-        return Boolean::newBoolean(block->mDirectData->mUnkc08fbd.as<float>() < 0.0f);
+        return Boolean::newBoolean(block->mDirectData->mDestroySpeed < 0.0f);
     }
     CATCH("Fail in isUnbreakable!");
 }
@@ -285,8 +281,7 @@ Local<Value> BlockClass::isUnbreakable() {
 Local<Value> BlockClass::isWaterBlockingBlock() {
     try {
         return Boolean::newBoolean(
-            block->mDirectData->mUnkd3e7c9.as<DetectionRule>().mUnk21e36d.as<LiquidReaction>()
-            == LiquidReaction::Blocking
+            block->mDirectData->mWaterDetectionRule->mOnLiquidTouches == LiquidReaction::Blocking
         );
     }
     CATCH("Fail in isWaterBlockingBlock!");
@@ -359,7 +354,7 @@ Local<Value> BlockClass::hasContainer(const Arguments&) {
                        .lock()
                        ->getBlockSourceFromMainChunkSource()
                        .getBlock(blockPos.getBlockPos());
-        return Boolean::newBoolean(bl.getLegacyBlock().isContainerBlock());
+        return Boolean::newBoolean(bl.getBlockType().isContainerBlock());
     }
     CATCH("Fail in hasContainer!");
 }
@@ -379,7 +374,7 @@ Local<Value> BlockClass::getContainer(const Arguments&) {
 
 Local<Value> BlockClass::hasBlockEntity(const Arguments&) {
     try {
-        return Boolean::newBoolean(block->getLegacyBlock().mBlockEntityType != BlockActorType::Undefined);
+        return Boolean::newBoolean(block->getBlockType().mBlockEntityType != BlockActorType::Undefined);
     }
     CATCH("Fail in hasBlockEntity!");
 }
@@ -398,16 +393,14 @@ Local<Value> BlockClass::getBlockEntity(const Arguments&) {
 
 Local<Value> BlockClass::removeBlockEntity(const Arguments&) {
     try {
-        auto chunk = ll::service::getLevel()
-                         ->getDimension(blockPos.dim)
-                         .lock()
-                         ->getBlockSourceFromMainChunkSource()
-                         .getChunkAt(blockPos.getBlockPos());
-        if (chunk) {
-            return Boolean::newBoolean(chunk->removeBlockEntity(blockPos.getBlockPos()) != nullptr);
-        } else {
-            return Boolean::newBoolean(false);
-        }
+        return Boolean::newBoolean(
+            ll::service::getLevel()
+                ->getDimension(blockPos.dim)
+                .lock()
+                ->getBlockSourceFromMainChunkSource()
+                .removeBlockEntity(blockPos.getBlockPos())
+            != nullptr
+        );
     }
     CATCH("Fail in removeBlockEntity!");
 }
@@ -469,7 +462,7 @@ Local<Value> McClass::getBlock(const Arguments& args) {
             return {};
         }
         auto& block = lc->getBlock(
-            ChunkBlockPos{(uchar)(pos.x & 0xf), (uchar)(pos.z & 0xf), ChunkLocalHeight{(short)pos.y - minHeight}}
+            ChunkBlockPos{(uchar)(pos.x & 0xf), ChunkLocalHeight{(short)pos.y - minHeight}, (uchar)(pos.z & 0xf)}
         );
         return BlockClass::newBlock(block, pos.getBlockPos(), pos.dim);
     }
@@ -533,7 +526,8 @@ Local<Value> McClass::setBlock(const Arguments& args) {
         }
 
         if (block.isString()) {
-            optional_ref<const Block> bl = Block::tryGetFromRegistry(block.asString().toString(), tileData);
+            optional_ref<const Block> bl =
+                Block::tryGetFromRegistry(HashedString(block.asString().toString()), tileData);
             if (!bl.has_value()) {
                 return Boolean::newBoolean(false);
             }
@@ -581,11 +575,8 @@ Local<Value> McClass::spawnParticle(const Arguments& args) {
                 IntPos* posObj = IntPos::extractPos(args[0]);
                 if (posObj->dim < 0) return Boolean::newBoolean(false);
                 else {
-                    pos.x   = posObj->x;
-                    pos.y   = posObj->y;
-                    pos.z   = posObj->z;
-                    pos.dim = posObj->dim;
-                    type    = args[1];
+                    pos  = *posObj;
+                    type = args[1];
                 }
             } else if (IsInstanceOf<FloatPos>(args[0])) {
                 // FloatPos

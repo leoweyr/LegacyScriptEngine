@@ -1,4 +1,4 @@
-#include "api/EventAPI.h"
+#include "EventAPI.h"
 
 #include "BaseAPI.h"
 #include "BlockAPI.h"
@@ -11,12 +11,11 @@
 #include "engine/EngineOwnData.h"
 #include "engine/GlobalShareData.h"
 #include "legacy/engine/LocalShareData.h"
-#include "legacy/main/BuiltinCommands.h"
+#include "legacy/main/BuiltinCommands.h" // IWYU pragma: keep
 #include "ll/api/chrono/GameChrono.h"
 #include "ll/api/coro/CoroTask.h"
 #include "ll/api/event/EventBus.h"
 #include "ll/api/event/command/ExecuteCommandEvent.h"
-#include "ll/api/event/entity/ActorHurtEvent.h"
 #include "ll/api/event/entity/MobDieEvent.h"
 #include "ll/api/event/player/PlayerAddExperienceEvent.h"
 #include "ll/api/event/player/PlayerAttackEvent.h"
@@ -47,7 +46,6 @@
 #include "lse/events/OtherEvents.h"
 #include "lse/events/PlayerEvents.h"
 #include "main/Global.h"
-#include "mc/legacy/ActorUniqueID.h"
 #include "mc/server/commands/CommandOriginType.h"
 #include "mc/world/actor/player/Player.h"
 #include "mc/world/attribute/AttributeInstance.h"
@@ -55,22 +53,21 @@
 #include "mc/world/item/VanillaItemNames.h"
 #include "mc/world/level/dimension/Dimension.h"
 
-#ifdef LEGACY_SCRIPT_ENGINE_BACKEND_NODEJS
+#ifdef LSE_BACKEND_NODEJS
 #include "legacy/main/NodeJsHelper.h"
 #endif
 
-#ifdef LEGACY_SCRIPT_ENGINE_BACKEND_PYTHON
+#ifdef LSE_BACKEND_PYTHON
 #include "legacy/main/PythonHelper.h"
 #endif
 
 #include <list>
-#include <shared_mutex>
 #include <string>
 
 //////////////////// Listeners ////////////////////
 
 // 监听器表
-std::list<ListenerListType> listenerList[int(EVENT_TYPES::EVENT_COUNT)];
+std::list<EventListener> listenerList[int(EVENT_TYPES::EVENT_COUNT)];
 
 // 监听器历史
 bool hasListened[int(EVENT_TYPES::EVENT_COUNT)] = {false};
@@ -83,31 +80,32 @@ Local<Value> McClass::listen(const Arguments& args) {
     CHECK_ARG_TYPE(args[1], ValueKind::kFunction);
 
     try {
-        return Boolean::newBoolean(
-            LLSEAddEventListener(EngineScope::currentEngine(), args[0].asString().toString(), args[1].asFunction())
-        );
+        auto eventName = args[0].asString().toString();
+        auto listener  = LLSEAddEventListener(EngineScope::currentEngine(), eventName, args[1].asFunction());
+        return Boolean::newBoolean(listener.has_value());
     }
     CATCH("Fail to Bind Listener!");
 }
 
 //////////////////// Funcs ////////////////////
 
-bool LLSEAddEventListener(ScriptEngine* engine, const string& eventName, const Local<Function>& func) {
+optional_ref<EventListener>
+LLSEAddEventListener(ScriptEngine* engine, const string& eventName, const Local<Function>& func) {
     try {
-        auto event_enum = magic_enum::enum_cast<EVENT_TYPES>(eventName);
-        auto eventId    = int(event_enum.value());
-        listenerList[eventId].push_back({engine, script::Global<Function>(func)});
+        auto  event_enum = magic_enum::enum_cast<EVENT_TYPES>(eventName);
+        auto  eventId    = int(event_enum.value());
+        auto& listener   = listenerList[eventId].emplace_back(engine, script::Global<Function>(func), *event_enum);
         if (!hasListened[eventId]) {
             hasListened[eventId] = true;
             EnableEventListener(eventId);
         }
-        return true;
+        return {listener};
     } catch (...) {
         lse::LegacyScriptEngine::getInstance().getSelf().getLogger().error("Event {} not found!"_tr(eventName));
         lse::LegacyScriptEngine::getInstance().getSelf().getLogger().error(
             "In Plugin: " + getEngineData(engine)->pluginName
         );
-        return false;
+        return std::nullopt;
     }
 }
 
@@ -133,13 +131,18 @@ bool LLSECallEventsOnHotLoad(ScriptEngine* engine) {
     return true;
 }
 
-bool LLSECallEventsOnHotUnload(ScriptEngine* engine) {
+bool LLSECallEventsOnUnload(ScriptEngine* engine) {
+    // Players may be online when the server is stopping
     ll::service::getLevel()->forEachPlayer([&](Player& pl) -> bool {
         FakeCallEvent(engine, EVENT_TYPES::onLeft, PlayerClass::newPlayer(&pl));
         return true;
     });
+    EngineScope scope(engine);
     for (auto& [index, cb] : getEngineData(engine)->unloadCallbacks) {
-        cb(engine);
+        try {
+            cb(engine);
+        }
+        CATCH_IN_CALLBACK("onUnload")
     }
     getEngineData(engine)->unloadCallbacks.clear();
     return true;
@@ -195,6 +198,7 @@ void EnableEventListener(int eventId) {
             }
             IF_LISTENED_END(EVENT_TYPES::onChat);
         });
+        break;
 
     case EVENT_TYPES::onChangeDim:
         lse::events::player::ChangeDimensionEvent();
@@ -232,10 +236,7 @@ void EnableEventListener(int eventId) {
     case EVENT_TYPES::onPlayerDie:
         bus.emplaceListener<ll::event::PlayerDieEvent>([](ll::event::PlayerDieEvent& ev) {
             IF_LISTENED(EVENT_TYPES::onPlayerDie) {
-                Actor* source = ll::service::getLevel()
-                                    ->getDimension(ev.self().getDimensionId())
-                                    .lock()
-                                    ->fetchEntity(ev.source().getEntityUniqueID(), false);
+                Actor* source = ev.self().getDimension().fetchEntity(ev.source().getEntityUniqueID(), false);
                 CallEvent(
                     EVENT_TYPES::onPlayerDie,
                     PlayerClass::newPlayer(&ev.self()),
@@ -265,7 +266,7 @@ void EnableEventListener(int eventId) {
                 if (!CallEvent(
                         EVENT_TYPES::onDestroyBlock,
                         PlayerClass::newPlayer(&ev.self()),
-                        BlockClass::newBlock(ev.pos(), ev.self().getDimensionId())
+                        BlockClass::newBlock(ev.pos(), ev.self().getDimensionId().id)
                     )) {
                     ev.cancel();
                 }
@@ -302,8 +303,8 @@ void EnableEventListener(int eventId) {
                 if (!CallEvent(
                         EVENT_TYPES::onPlaceBlock,
                         PlayerClass::newPlayer(&ev.self()),
-                        block ? BlockClass::newBlock(*block, truePos, ev.self().getDimensionId())
-                              : BlockClass::newBlock(truePos, ev.self().getDimensionId()),
+                        block ? BlockClass::newBlock(*block, truePos, ev.self().getDimensionId().id)
+                              : BlockClass::newBlock(truePos, ev.self().getDimensionId().id),
                         Number::newNumber((schar)ev.face())
                     )) {
                     ev.cancel();
@@ -319,7 +320,7 @@ void EnableEventListener(int eventId) {
                 CallEvent(
                     EVENT_TYPES::afterPlaceBlock,
                     PlayerClass::newPlayer(&ev.self()),
-                    BlockClass::newBlock(ev.pos(), ev.self().getDimensionId())
+                    BlockClass::newBlock(ev.pos(), ev.self().getDimensionId().id)
                 ); // Not cancellable
             }
             IF_LISTENED_END(EVENT_TYPES::afterPlaceBlock);
@@ -388,9 +389,9 @@ void EnableEventListener(int eventId) {
                         EVENT_TYPES::onUseItemOn,
                         PlayerClass::newPlayer(&ev.self()),
                         ItemClass::newItem(&ev.item()),
-                        BlockClass::newBlock(ev.block(), ev.blockPos(), ev.self().getDimensionId()),
+                        BlockClass::newBlock(ev.block(), ev.blockPos(), ev.self().getDimensionId().id),
                         Number::newNumber((schar)ev.face()),
-                        FloatPos::newPos(ev.clickPos(), ev.self().getDimensionId())
+                        FloatPos::newPos(ev.clickPos(), ev.self().getDimensionId().id)
                     )) {
                     ev.cancel();
                 }
@@ -513,9 +514,7 @@ void EnableEventListener(int eventId) {
         break;
 
     case EVENT_TYPES::onEntityExplode:
-        lse::events::block::ExplodeEvent();
-        break;
-
+        [[fallthrough]];
     case EVENT_TYPES::onBlockExplode:
         lse::events::block::ExplodeEvent();
         break;
@@ -604,22 +603,21 @@ void EnableEventListener(int eventId) {
                 if (!CallEvent(
                         EVENT_TYPES::onBlockInteracted,
                         PlayerClass::newPlayer(&ev.self()),
-                        BlockClass::newBlock(ev.blockPos(), ev.self().getDimensionId())
+                        BlockClass::newBlock(ev.blockPos(), ev.self().getDimensionId().id)
                     )) {
                     ev.cancel();
                 }
             }
             IF_LISTENED_END(EVENT_TYPES::onBlockInteracted);
         });
+        break;
 
     case EVENT_TYPES::onFarmLandDecay:
         lse::events::block::FarmDecayEvent();
         break;
 
     case EVENT_TYPES::onPistonTryPush:
-        lse::events::block::PistonPushEvent();
-        break;
-
+        [[fallthrough]];
     case EVENT_TYPES::onPistonPush:
         lse::events::block::PistonPushEvent();
         break;
@@ -757,18 +755,18 @@ void InitBasicEventListeners() {
             if (cmd.starts_with("/")) {
                 cmd.erase(0, 1);
             }
-#ifndef LEGACY_SCRIPT_ENGINE_BACKEND_NODEJS
+#ifndef LSE_BACKEND_NODEJS
             if (!ProcessDebugEngine(cmd)) {
                 ev.cancel();
                 return;
             }
 #endif
-#ifdef LEGACY_SCRIPT_ENGINE_BACKEND_NODEJS
+#ifdef LSE_BACKEND_NODEJS
             if (!NodeJsHelper::processConsoleNpmCmd(cmd)) {
                 ev.cancel();
                 return;
             }
-#elif defined(LEGACY_SCRIPT_ENGINE_BACKEND_PYTHON)
+#elif defined(LSE_BACKEND_PYTHON)
             if (!PythonHelper::processConsolePipCmd(cmd)) {
                 ev.cancel();
                 return;
@@ -872,8 +870,18 @@ void InitBasicEventListeners() {
     ll::coro::keepThis([]() -> ll::coro::CoroTask<> {
         while (true) {
             co_await 1_tick;
-
-#ifndef LEGACY_SCRIPT_ENGINE_BACKEND_NODEJS
+            for (auto& type : dirtyEventTypes) {
+                auto& list = listenerList[int(type)];
+                for (auto iter = list.begin(); iter != list.end();) {
+                    if (iter->removed) {
+                        EngineScope scope(iter->engine);
+                        iter = list.erase(iter);
+                    } else {
+                        iter++;
+                    }
+                }
+            }
+#ifndef LSE_BACKEND_NODEJS
             try {
                 std::list<ScriptEngine*> tmpList;
                 {

@@ -7,6 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2025-10-04
+
+### Changed
+
+- Supported LeviLamina 1.6.0 @ShrBox
+- Removed LegacyParticleAPI
+
+## [0.14.0] - 2025-09-23
+
+### Changed
+
+- Supported LeviLamina 1.5.0 @ShrBox
+
+### Fixed
+
+- Fixed logger.setFile [#323] @ShrBox
+
+## [0.13.2] - 2025-08-07
+
+### Fixed
+
+- Fixed Node engine installation issue
+- Fixed the simulated player using Player::getLangCode (#316) @zimuya4153
+
+## [0.13.1] - 2025-07-18
+
+### Fixed
+
+- Fixed 7-zip tooth [#309]
+- Fixed mc.getEntities [#310]
+
+## [0.13.0] - 2025-07-15
+
+### Changed
+
+- Supported LeviLamina 1.4.0 @xiaoqch
+
+### Fixed
+
+- Ensured onUnload is invoked prior to engine cleanup @xiaoqch
+
+## [0.12.1] - 2025-07-13
+
+### Added
+
+- Implemented the internal support for event cancellation [#285] @xiaoqch
+- Added file version info @xiaoqch
+
+### Changed
+
+- Refactored npm command, revert event commit @xiaoqch
+
+### Fixed
+
+- Fixed entity.setMaxHealth [#291] @xiaoqch
+- Fixed onSetArmor, onEffectAdded and onEffectRemoved [#299] @xiaoqch
+- Fixed npm command @xiaoqch
+- Fixed unload crash [#300] @xiaoqch
+- Disabled input in console npm command @xiaoqch
+- Fixed old nodejs addon load error [#9] @xiaoqch
+- Ensured microtasks are executed automatically [#10] @xiaoqch
+- Fixed ll.onUnload [#303] @xiaoqch
+- Fixed onServerStarted event for nodejs engine @xiaoqch
+- Ensured mods are unloaded when the server stops [#303] @xiaoqch
+- Added missing enter scope on mods unload @xiaoqch
+- Fixed ll.isRelease @xiaoqch
+
 ## [0.12.0] - 2025-06-12
 
 ### Added
@@ -858,6 +925,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - First release.
 
+[#9]: https://github.com/LiteLDev/LegacyScriptEngine/issues/9
+[#10]: https://github.com/LiteLDev/LegacyScriptEngine/issues/10
 [#31]: https://github.com/LiteLDev/LegacyScriptEngine/issues/31
 [#35]: https://github.com/LiteLDev/LegacyScriptEngine/issues/35
 [#37]: https://github.com/LiteLDev/LegacyScriptEngine/issues/37
@@ -944,8 +1013,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#273]: https://github.com/LiteLDev/LegacyScriptEngine/issues/273
 [#277]: https://github.com/LiteLDev/LegacyScriptEngine/issues/277
 [#278]: https://github.com/LiteLDev/LegacyScriptEngine/issues/278
+[#285]: https://github.com/LiteLDev/LegacyScriptEngine/issues/285
+[#291]: https://github.com/LiteLDev/LegacyScriptEngine/issues/291
+[#299]: https://github.com/LiteLDev/LegacyScriptEngine/issues/299
+[#300]: https://github.com/LiteLDev/LegacyScriptEngine/issues/300
+[#303]: https://github.com/LiteLDev/LegacyScriptEngine/issues/303
+[#309]: https://github.com/LiteLDev/LegacyScriptEngine/issues/309
+[#310]: https://github.com/LiteLDev/LegacyScriptEngine/issues/310
+[#323]: https://github.com/LiteLDev/LegacyScriptEngine/issues/323
 
-[Unreleased]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.14.0...v0.15.0
+[0.14.0]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.13.2...v0.14.0
+[0.13.2]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.13.1...v0.13.2
+[0.13.1]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.13.0...v0.13.1
+[0.13.0]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.12.1...v0.13.0
+[0.12.1]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.11.3...v0.12.0
 [0.11.3]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.11.2...v0.11.3
 [0.11.2]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.11.1...v0.11.2

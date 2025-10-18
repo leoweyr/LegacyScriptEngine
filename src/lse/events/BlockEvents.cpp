@@ -7,6 +7,7 @@
 #include "ll/api/memory/Hook.h"
 #include "ll/api/memory/Memory.h"
 #include "ll/api/service/Bedrock.h"
+#include "lse/api/helper/BlockHelper.h"
 #include "mc/legacy/ActorUniqueID.h"
 #include "mc/scripting/modules/minecraft/events/ScriptBlockGlobalEventListener.h"
 #include "mc/server/commands/CommandOrigin.h"
@@ -69,7 +70,7 @@ LL_TYPE_INSTANCE_HOOK(
             if (!CallEvent(
                     EVENT_TYPES::onContainerChange,
                     PlayerClass::newPlayer(&mPlayer),
-                    BlockClass::newBlock(mBlockPos, mPlayer.getDimensionId()),
+                    BlockClass::newBlock(mBlockPos, mPlayer.getDimensionId().id),
                     Number::newNumber(slotNumber + this->_getContainerOffset()),
                     ItemClass::newItem(&const_cast<ItemStack&>(oldItem)),
                     ItemClass::newItem(&const_cast<ItemStack&>(newItem))
@@ -190,7 +191,7 @@ LL_TYPE_INSTANCE_HOOK(
     return shouldPush;
 }
 
-LL_TYPE_INSTANCE_HOOK(ExplodeHook, HookPriority::Normal, Explosion, &Explosion::explode, bool) {
+LL_TYPE_INSTANCE_HOOK(ExplodeHook, HookPriority::Normal, Explosion, &Explosion::explode, bool, ::IRandom& random) {
     IF_LISTENED(EVENT_TYPES::onEntityExplode) {
         if (mSourceID->rawID != ActorUniqueID::INVALID_ID().rawID) {
             if (!CallEvent(
@@ -222,7 +223,7 @@ LL_TYPE_INSTANCE_HOOK(ExplodeHook, HookPriority::Normal, Explosion, &Explosion::
         }
     }
     IF_LISTENED_END(EVENT_TYPES::onBlockExplode);
-    return origin();
+    return origin(random);
 }
 
 LL_TYPE_STATIC_HOOK(

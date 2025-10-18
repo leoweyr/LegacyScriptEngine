@@ -27,6 +27,7 @@
 #include "lse/api/MoreGlobal.h"
 #include "lse/api/NetworkPacket.h"
 #include "lse/api/helper/AttributeHelper.h"
+#include "lse/api/helper/BlockHelper.h"
 #include "lse/api/helper/PlayerHelper.h"
 #include "lse/api/helper/ScoreboardHelper.h"
 #include "main/EconomicSystem.h"
@@ -106,6 +107,7 @@
 #include "mc/world/scores/ScoreInfo.h"
 #include "mc/world/scores/Scoreboard.h"
 #include "mc/world/scores/ScoreboardId.h"
+#include "mc/world/scores/ScoreboardOperationResult.h"
 
 SetScorePacket::SetScorePacket() = default;
 
@@ -508,7 +510,7 @@ Local<Value> McClass::getPlayerScore(const Arguments& args) {
         }
         int64        uniqueId = serverIdTag->at("UniqueID");
         ScoreboardId sid      = ScoreboardHelper::getId(scoreboard, PlayerScoreboardId(uniqueId));
-        if (sid.mRawID == ScoreboardId::INVALID().mRawID || !objective->hasScore(sid)) {
+        if (sid.mRawID == ScoreboardId::INVALID().mRawID || !objective->mScores->contains(sid)) {
             return Number::newNumber(0);
         }
         return Number::newNumber(objective->getPlayerScore(sid).mValue);
@@ -546,10 +548,10 @@ Local<Value> McClass::setPlayerScore(const Arguments& args) {
         if (sid.mRawID == ScoreboardId::INVALID().mRawID) {
             return Boolean::newBoolean(false);
         }
-        bool isSuccess = false;
+        ScoreboardOperationResult isSuccess;
         scoreboard
             .modifyPlayerScore(isSuccess, sid, *objective, args[2].asNumber().toInt32(), PlayerScoreSetFunction::Set);
-        return Boolean::newBoolean(isSuccess);
+        return Boolean::newBoolean(isSuccess == ScoreboardOperationResult::Success);
     }
     CATCH("Fail in setPlayerScore!")
 }
@@ -584,10 +586,10 @@ Local<Value> McClass::addPlayerScore(const Arguments& args) {
         if (sid.mRawID == ScoreboardId::INVALID().mRawID) {
             return Boolean::newBoolean(false);
         }
-        bool isSuccess = false;
+        ScoreboardOperationResult isSuccess;
         scoreboard
             .modifyPlayerScore(isSuccess, sid, *objective, args[2].asNumber().toInt32(), PlayerScoreSetFunction::Add);
-        return Boolean::newBoolean(isSuccess);
+        return Boolean::newBoolean(isSuccess == ScoreboardOperationResult::Success);
     }
     CATCH("Fail in addPlayerScore!")
 }
@@ -622,7 +624,7 @@ Local<Value> McClass::reducePlayerScore(const Arguments& args) {
         if (sid.mRawID == ScoreboardId::INVALID().mRawID) {
             return Boolean::newBoolean(false);
         }
-        bool isSuccess = false;
+        ScoreboardOperationResult isSuccess;
         scoreboard.modifyPlayerScore(
             isSuccess,
             sid,
@@ -630,7 +632,7 @@ Local<Value> McClass::reducePlayerScore(const Arguments& args) {
             args[2].asNumber().toInt32(),
             PlayerScoreSetFunction::Subtract
         );
-        return Boolean::newBoolean(isSuccess);
+        return Boolean::newBoolean(isSuccess == ScoreboardOperationResult::Success);
     }
     CATCH("Fail in reducePlayerScore!")
 }
@@ -777,7 +779,7 @@ Local<Value> PlayerClass::getPos() {
         Player* player = get();
         if (!player) return Local<Value>();
 
-        return FloatPos::newPos(player->getPosition(), player->getDimensionId());
+        return FloatPos::newPos(player->getPosition(), player->getDimensionId().id);
     }
     CATCH("Fail in getPlayerPos!")
 }
@@ -787,7 +789,7 @@ Local<Value> PlayerClass::getFeetPos() {
         Player* player = get();
         if (!player) return Local<Value>();
 
-        return FloatPos::newPos(player->getFeetPos(), player->getDimensionId());
+        return FloatPos::newPos(player->getFeetPos(), player->getDimensionId().id);
     }
     CATCH("Fail in getPlayerFeetPos!")
 }
@@ -797,7 +799,7 @@ Local<Value> PlayerClass::getBlockPos() {
         Player* player = get();
         if (!player) return Local<Value>();
 
-        return IntPos::newPos(player->getFeetBlockPos(), player->getDimensionId());
+        return IntPos::newPos(player->getFeetBlockPos(), player->getDimensionId().id);
     }
     CATCH("Fail in getPlayerBlockPos!")
 }
@@ -1162,9 +1164,11 @@ Local<Value> PlayerClass::getRuntimeID() {
 
 Local<Value> PlayerClass::getLangCode() {
     try {
-        Json::Value& requestJson = get()->getConnectionRequest()->mRawToken->mDataInfo;
+        Player* player = get();
+        if (!player) return Local<Value>();
 
-        return String::newString(requestJson.get("LanguageCode", "unknown").asString("unknown"));
+        auto language = player->getLocaleCode();
+        return String::newString(language.empty() ? "unknown" : language);
     }
     CATCH("Fail in getLangCode!");
 }
@@ -1202,7 +1206,7 @@ Local<Value> PlayerClass::isInsidePortal() {
 
         auto component = player->getEntityContext().tryGetComponent<InsideBlockComponent>();
         if (component) {
-            auto& fullName = component->mInsideBlock->getLegacyBlock().mNameInfo->mFullName;
+            auto& fullName = component->mInsideBlock->getBlockType().mNameInfo->mFullName;
             return Boolean::newBoolean(
                 *fullName == VanillaBlockTypeIds::Portal() || *fullName == VanillaBlockTypeIds::EndPortal()
             );
@@ -1382,7 +1386,9 @@ Local<Value> PlayerClass::isDancing() {
             return Local<Value>();
         }
 
-        return Boolean::newBoolean(player->isDancing());
+        return Boolean::newBoolean(
+            SynchedActorDataAccess::getActorFlag(player->getEntityContext(), ActorFlags::Dancing)
+        );
     }
     CATCH("Fail in isDancing!")
 }
@@ -1453,10 +1459,7 @@ Local<Value> PlayerClass::teleport(const Arguments& args) {
                 IntPos* posObj = IntPos::extractPos(args[0]);
                 if (posObj->dim < 0) return Boolean::newBoolean(false);
                 else {
-                    pos.x   = posObj->x;
-                    pos.y   = posObj->y;
-                    pos.z   = posObj->z;
-                    pos.dim = posObj->dim;
+                    pos = *posObj;
                 }
             } else if (IsInstanceOf<FloatPos>(args[0])) {
                 // FloatPos
@@ -1543,11 +1546,14 @@ Local<Value> PlayerClass::setPermLevel(const Arguments& args) {
                 fmt::format("Set Player {} Permission Level as {}.", player->getRealName(), newPerm)
             );
             player->getAbilities().mPermissions->mCommandPermissions = (CommandPermissionLevel)newPerm;
+            auto& perm    = player->getAbilities().mPermissions->mPlayerPermissions;
+            auto  oriPerm = perm;
             if (newPerm >= 1) {
-                player->getAbilities().setPlayerPermissions(PlayerPermissionLevel::Operator);
+                perm = PlayerPermissionLevel::Operator;
             } else {
-                player->getAbilities().setPlayerPermissions(PlayerPermissionLevel::Member);
+                perm = PlayerPermissionLevel::Member;
             }
+            player->getAbilities()._handlePlayerPermissionsChange(oriPerm, perm);
             UpdateAbilitiesPacket uPkt(player->getOrCreateUniqueID(), player->getAbilities());
             player->sendNetworkPacket(uPkt);
             res = true;
@@ -1663,10 +1669,10 @@ Local<Value> PlayerClass::setTitle(const Arguments& args) {
             fadeOutTime = args[4].asNumber().toInt32();
         }
 
-        SetTitlePacket pkt = SetTitlePacket(type, content, std::nullopt);
-        pkt.mFadeInTime    = fadeInTime;
-        pkt.mStayTime      = stayTime;
-        pkt.mFadeOutTime   = fadeOutTime;
+        SetTitlePacket pkt(type, content, std::nullopt);
+        pkt.mFadeInTime  = fadeInTime;
+        pkt.mStayTime    = stayTime;
+        pkt.mFadeOutTime = fadeOutTime;
         player->sendNetworkPacket(pkt);
         return Boolean::newBoolean(true);
     }
@@ -1900,7 +1906,7 @@ Local<Value> PlayerClass::setLevel(const Arguments& args) {
         Player* player = get();
         if (!player) return Local<Value>();
 
-        player->addLevels(args[0].asNumber().toInt32() - player->getAttribute(Player::LEVEL()).mCurrentValue);
+        player->addLevels(args[0].asNumber().toInt32() - (int)player->getAttribute(Player::LEVEL()).mCurrentValue);
         return Boolean::newBoolean(true);
     }
     CATCH("Fail in setLevel!");
@@ -2021,7 +2027,7 @@ Local<Value> PlayerClass::getTotalExperience(const Arguments&) {
         }
 
         int          startLevel = 0;
-        int          endLevel   = player->getAttribute(Player::LEVEL()).mCurrentValue;
+        int          endLevel   = (int)player->getAttribute(Player::LEVEL()).mCurrentValue;
         unsigned int totalXp    = 0;
 
         for (int level = startLevel; level < endLevel; ++level) {
@@ -2106,7 +2112,7 @@ Local<Value> PlayerClass::getBlockStandingOn(const Arguments&) {
         Player* player = get();
         if (!player) return Local<Value>();
 
-        return BlockClass::newBlock(player->getBlockPosCurrentlyStandingOn(nullptr), player->getDimensionId());
+        return BlockClass::newBlock(player->getBlockPosCurrentlyStandingOn(nullptr), player->getDimensionId().id);
     }
     CATCH("Fail in getBlockStandingOn!");
 }
@@ -2164,9 +2170,9 @@ Local<Value> PlayerClass::setScore(const Arguments& args) {
         if (id.mRawID == ScoreboardId::INVALID().mRawID) {
             scoreboard.createScoreboardId(*player);
         }
-        bool isSuccess = false;
+        ScoreboardOperationResult isSuccess;
         scoreboard.modifyPlayerScore(isSuccess, id, *obj, args[1].asNumber().toInt32(), PlayerScoreSetFunction::Set);
-        return Boolean::newBoolean(isSuccess);
+        return Boolean::newBoolean(isSuccess == ScoreboardOperationResult::Success);
     }
     CATCH("Fail in setScore!");
 }
@@ -2189,9 +2195,9 @@ Local<Value> PlayerClass::addScore(const Arguments& args) {
         if (id.mRawID == ScoreboardId::INVALID().mRawID) {
             scoreboard.createScoreboardId(*player);
         }
-        bool isSuccess = false;
+        ScoreboardOperationResult isSuccess;
         scoreboard.modifyPlayerScore(isSuccess, id, *obj, args[1].asNumber().toInt32(), PlayerScoreSetFunction::Add);
-        return Boolean::newBoolean(isSuccess);
+        return Boolean::newBoolean(isSuccess == ScoreboardOperationResult::Success);
     }
     CATCH("Fail in addScore!");
 }
@@ -2214,10 +2220,10 @@ Local<Value> PlayerClass::reduceScore(const Arguments& args) {
         if (id.mRawID == ScoreboardId::INVALID().mRawID) {
             scoreboard.createScoreboardId(*player);
         }
-        bool isSuccess = false;
+        ScoreboardOperationResult isSuccess;
         scoreboard
             .modifyPlayerScore(isSuccess, id, *obj, args[1].asNumber().toInt32(), PlayerScoreSetFunction::Subtract);
-        return Boolean::newBoolean(isSuccess);
+        return Boolean::newBoolean(isSuccess == ScoreboardOperationResult::Success);
     }
     CATCH("Fail in reduceScore!");
 }
@@ -2244,6 +2250,9 @@ Local<Value> PlayerClass::deleteScore(const Arguments& args) {
     }
     CATCH("Fail in deleteScore!");
 }
+
+SetDisplayObjectivePacket::SetDisplayObjectivePacket()               = default;
+SetDisplayObjectivePacketPayload::SetDisplayObjectivePacketPayload() = default;
 
 Local<Value> PlayerClass::setSidebar(const Arguments& args) {
     CHECK_ARGS_COUNT(args, 2);
@@ -2290,6 +2299,9 @@ Local<Value> PlayerClass::setSidebar(const Arguments& args) {
     }
     CATCH("Fail in setSidebar!")
 }
+
+RemoveObjectivePacketPayload::RemoveObjectivePacketPayload() = default;
+RemoveObjectivePacket::RemoveObjectivePacket()               = default;
 
 Local<Value> PlayerClass::removeSidebar(const Arguments&) {
     try {
@@ -2630,7 +2642,6 @@ Local<Value> PlayerClass::sendPacket(const Arguments& args) {
         return Boolean::newBoolean(true);
     }
     CATCH("Fail in sendPacket");
-    return Local<Value>();
 }
 
 Local<Value> PlayerClass::setExtraData(const Arguments& args) {
@@ -3026,10 +3037,10 @@ Local<Value> PlayerClass::clearItem(const Arguments& args) {
                     if (count <= clearCount) {
                         result     += count;
                         clearCount -= count;
-                        container.setItem(slot, ItemStack::EMPTY_ITEM());
+                        container.setItem((int)slot, ItemStack::EMPTY_ITEM());
                     } else {
                         result += clearCount;
-                        container.removeItem(slot, clearCount);
+                        container.removeItem((int)slot, clearCount);
                         clearCount = 0;
                     }
                 }
@@ -3240,10 +3251,10 @@ Local<Value> PlayerClass::getBlockFromViewVector(const Arguments& args) {
             false,
             true,
             [&solidOnly, &fullOnly, &includeLiquid](BlockSource const&, Block const& block, bool) {
-                if (solidOnly && !block.mCachedComponentData->mUnkd6c5eb.as<bool>()) {
+                if (solidOnly && !block.mCachedComponentData->mIsSolid) {
                     return false;
                 }
-                if (fullOnly && !block.isSlabBlock()) {
+                if (fullOnly && !block.getBlockType().isSlabBlock()) {
                     return false;
                 }
                 if (!includeLiquid && BlockUtils::isLiquidSource(block)) {
@@ -3261,10 +3272,11 @@ Local<Value> PlayerClass::getBlockFromViewVector(const Arguments& args) {
         } else {
             bp = res.mBlock;
         }
-        Block const&       bl     = player->getDimensionBlockSource().getBlock(bp);
-        BlockLegacy const& legacy = bl.getLegacyBlock();
+        Block const&     bl     = player->getDimensionBlockSource().getBlock(bp);
+        BlockType const& legacy = bl.getBlockType();
         // isEmpty()
-        if (bl.isAir() || (legacy.mProperties == BlockProperty::None && legacy.mMaterial.mType == MaterialType::Any)) {
+        if (bl.isAir()
+            || (legacy.mProperties == BlockProperty::None && legacy.mMaterial.mType == MaterialType::Any)) {
             return Local<Value>();
         }
         return BlockClass::newBlock(bl, bp, player->getDimensionBlockSource());
@@ -3458,6 +3470,9 @@ Local<Value> PlayerClass::removeItem(const Arguments& args) {
     CATCH("Fail in removeItem!")
 }
 
+ToastRequestPacket::ToastRequestPacket()               = default;
+ToastRequestPacketPayload::ToastRequestPacketPayload() = default;
+
 Local<Value> PlayerClass::sendToast(const Arguments& args) {
     CHECK_ARGS_COUNT(args, 2);
     CHECK_ARG_TYPE(args[0], ValueKind::kString);
@@ -3491,10 +3506,7 @@ Local<Value> PlayerClass::distanceTo(const Arguments& args) {
                 IntPos* posObj = IntPos::extractPos(args[0]);
                 if (posObj->dim < 0) return Local<Value>();
                 else {
-                    pos.x   = posObj->x;
-                    pos.y   = posObj->y;
-                    pos.z   = posObj->z;
-                    pos.dim = posObj->dim;
+                    pos = *posObj;
                 }
             } else if (IsInstanceOf<FloatPos>(args[0])) {
                 // FloatPos
@@ -3514,7 +3526,7 @@ Local<Value> PlayerClass::distanceTo(const Arguments& args) {
                 pos.x   = targetActorPos.x;
                 pos.y   = targetActorPos.y;
                 pos.z   = targetActorPos.z;
-                pos.dim = targetActor->getDimensionId();
+                pos.dim = targetActor->getDimensionId().id;
             } else {
                 LOG_WRONG_ARG_TYPE(__FUNCTION__);
                 return Local<Value>();
@@ -3537,7 +3549,7 @@ Local<Value> PlayerClass::distanceTo(const Arguments& args) {
 
         if (player->getDimensionId().id != pos.dim) return Number::newNumber(INT_MAX);
 
-        return Number::newNumber(player->distanceTo(pos.getVec3()));
+        return Number::newNumber(player->getPosition().distanceTo(pos.getVec3()));
     }
     CATCH("Fail in distanceTo!")
 }
@@ -3557,10 +3569,7 @@ Local<Value> PlayerClass::distanceToSqr(const Arguments& args) {
                 IntPos* posObj = IntPos::extractPos(args[0]);
                 if (posObj->dim < 0) return Local<Value>();
                 else {
-                    pos.x   = posObj->x;
-                    pos.y   = posObj->y;
-                    pos.z   = posObj->z;
-                    pos.dim = posObj->dim;
+                    pos = *posObj;
                 }
             } else if (IsInstanceOf<FloatPos>(args[0])) {
                 // FloatPos
@@ -3580,7 +3589,7 @@ Local<Value> PlayerClass::distanceToSqr(const Arguments& args) {
                 pos.x   = targetActorPos.x;
                 pos.y   = targetActorPos.y;
                 pos.z   = targetActorPos.z;
-                pos.dim = targetActor->getDimensionId();
+                pos.dim = targetActor->getDimensionId().id;
             } else {
                 LOG_WRONG_ARG_TYPE(__FUNCTION__);
                 return Local<Value>();
@@ -3603,7 +3612,7 @@ Local<Value> PlayerClass::distanceToSqr(const Arguments& args) {
 
         if (player->getDimensionId().id != pos.dim) return Number::newNumber(INT_MAX);
 
-        return Number::newNumber(player->distanceToSqr(pos.getVec3()));
+        return Number::newNumber(player->getPosition().distanceToSqr(pos.getVec3()));
     }
     CATCH("Fail in distanceToSqr!")
 }
@@ -3624,7 +3633,7 @@ Local<Value> PlayerClass::setAbility(const Arguments& args) {
                 auto player = ll::service::getLevel()->getPlayer(uuid);
                 if (!player) co_return;
                 UpdateAbilitiesPacket(uuid, player->getAbilities()).sendTo(*player);
-                UpdateAdventureSettingsPacket{}.sendTo(*player);
+                UpdateAdventureSettingsPacket{player->getLevel().getAdventureSettings()}.sendTo(*player);
             }).launch(ll::thread::ServerThreadExecutor::getDefault());
         }
         return Boolean::newBoolean(true);
@@ -3638,7 +3647,7 @@ Local<Value> PlayerClass::getBiomeId() {
         Player* player = get();
         if (!player) return Local<Value>();
         Biome const& bio = player->getDimensionBlockSource().getBiome(player->getFeetBlockPos());
-        return Number::newNumber(bio.mId);
+        return Number::newNumber(bio.mId->mValue);
     }
     CATCH("Fail in getBiomeId!");
 }

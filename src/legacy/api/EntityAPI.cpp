@@ -12,10 +12,11 @@
 #include "ll/api/service/Bedrock.h"
 #include "lse/api/MoreGlobal.h"
 #include "lse/api/helper/AttributeHelper.h"
+#include "lse/api/helper/BlockHelper.h"
 #include "mc/deps/core/math/Vec2.h"
 #include "mc/deps/shared_types/legacy/actor/ActorDamageCause.h"
+#include "mc/deps/vanilla_components/ActorDataFlagComponent.h"
 #include "mc/deps/vanilla_components/StateVectorComponent.h"
-#include "mc/entity/components/ActorRotationComponent.h"
 #include "mc/entity/components/InsideBlockComponent.h"
 #include "mc/entity/components/IsOnHotBlockFlagComponent.h"
 #include "mc/entity/components/TagsComponent.h"
@@ -229,7 +230,7 @@ Local<Value> EntityClass::isInsidePortal() {
 
         auto component = entity->getEntityContext().tryGetComponent<InsideBlockComponent>();
         if (component) {
-            auto& fullName = component->mInsideBlock->getLegacyBlock().mNameInfo->mFullName;
+            auto& fullName = component->mInsideBlock->getBlockType().mNameInfo->mFullName;
             return Boolean::newBoolean(
                 *fullName == VanillaBlockTypeIds::Portal() || *fullName == VanillaBlockTypeIds::EndPortal()
             );
@@ -316,7 +317,9 @@ Local<Value> EntityClass::isDancing() {
         Actor* entity = get();
         if (!entity) return Local<Value>();
 
-        return Boolean::newBoolean(entity->isDancing());
+        return Boolean::newBoolean(
+            SynchedActorDataAccess::getActorFlag(entity->getEntityContext(), ActorFlags::Dancing)
+        );
     }
     CATCH("Fail in isDancing!")
 }
@@ -398,7 +401,7 @@ Local<Value> EntityClass::getPos() {
         Actor* entity = get();
         if (!entity) return Local<Value>();
 
-        return FloatPos::newPos(entity->getPosition(), entity->getDimensionId());
+        return FloatPos::newPos(entity->getPosition(), entity->getDimensionId().id);
     }
     CATCH("Fail in GetEntityPos!")
 }
@@ -408,7 +411,7 @@ Local<Value> EntityClass::getPosDelta() {
         Actor* entity = get();
         if (!entity) return Local<Value>();
 
-        return FloatPos::newPos(entity->getPosDelta(), entity->getDimensionId());
+        return FloatPos::newPos(entity->getPosDelta(), entity->getDimensionId().id);
     }
     CATCH("Fail in GetEntityPosDelta!")
 }
@@ -447,7 +450,7 @@ Local<Value> EntityClass::getFeetPos() {
         Actor* entity = get();
         if (!entity) return Local<Value>();
 
-        return FloatPos::newPos(entity->getFeetPos(), entity->getDimensionId());
+        return FloatPos::newPos(entity->getFeetPos(), entity->getDimensionId().id);
     }
     CATCH("Fail in GetEntityFeetPos!")
 }
@@ -457,7 +460,7 @@ Local<Value> EntityClass::getBlockPos() {
         Actor* entity = get();
         if (!entity) return Local<Value>();
 
-        return IntPos::newPos(entity->getFeetBlockPos(), entity->getDimensionId());
+        return IntPos::newPos(entity->getFeetBlockPos(), entity->getDimensionId().id);
     }
     CATCH("Fail in GetEntityBlockPos!")
 }
@@ -547,7 +550,7 @@ Local<Value> EntityClass::getInClouds() {
         Actor* entity = get();
         if (!entity) return Local<Value>();
 
-        short cloudHeight = entity->getDimension().getCloudHeight();
+        float cloudHeight = entity->getDimension().getCloudHeight();
         float y           = entity->getPosition().y;
         return Boolean::newBoolean(y > cloudHeight && y < cloudHeight + 4.0f);
     }
@@ -658,10 +661,7 @@ Local<Value> EntityClass::teleport(const Arguments& args) {
                 IntPos* posObj = IntPos::extractPos(args[0]);
                 if (posObj->dim < 0) return Boolean::newBoolean(false);
                 else {
-                    pos.x   = posObj->x;
-                    pos.y   = posObj->y;
-                    pos.z   = posObj->z;
-                    pos.dim = posObj->dim;
+                    pos = *posObj;
                 }
             } else if (IsInstanceOf<FloatPos>(args[0])) {
                 // FloatPos
@@ -726,10 +726,7 @@ Local<Value> EntityClass::distanceTo(const Arguments& args) {
                 IntPos* posObj = IntPos::extractPos(args[0]);
                 if (posObj->dim < 0) return Local<Value>();
                 else {
-                    pos.x   = posObj->x;
-                    pos.y   = posObj->y;
-                    pos.z   = posObj->z;
-                    pos.dim = posObj->dim;
+                    pos = *posObj;
                 }
             } else if (IsInstanceOf<FloatPos>(args[0])) {
                 // FloatPos
@@ -749,7 +746,7 @@ Local<Value> EntityClass::distanceTo(const Arguments& args) {
                 pos.x   = targetActorPos.x;
                 pos.y   = targetActorPos.y;
                 pos.z   = targetActorPos.z;
-                pos.dim = targetActor->getDimensionId();
+                pos.dim = targetActor->getDimensionId().id;
             } else {
                 LOG_WRONG_ARG_TYPE(__FUNCTION__);
                 return Local<Value>();
@@ -772,7 +769,7 @@ Local<Value> EntityClass::distanceTo(const Arguments& args) {
 
         if (actor->getDimensionId().id != pos.dim) return Number::newNumber(INT_MAX);
 
-        return Number::newNumber(actor->distanceTo(pos.getVec3()));
+        return Number::newNumber(actor->getPosition().distanceTo(pos.getVec3()));
     }
     CATCH("Fail in distanceTo!")
 }
@@ -792,10 +789,7 @@ Local<Value> EntityClass::distanceToSqr(const Arguments& args) {
                 IntPos* posObj = IntPos::extractPos(args[0]);
                 if (posObj->dim < 0) return Local<Value>();
                 else {
-                    pos.x   = posObj->x;
-                    pos.y   = posObj->y;
-                    pos.z   = posObj->z;
-                    pos.dim = posObj->dim;
+                    pos = *posObj;
                 }
             } else if (IsInstanceOf<FloatPos>(args[0])) {
                 // FloatPos
@@ -815,7 +809,7 @@ Local<Value> EntityClass::distanceToSqr(const Arguments& args) {
                 pos.x   = targetActorPos.x;
                 pos.y   = targetActorPos.y;
                 pos.z   = targetActorPos.z;
-                pos.dim = targetActor->getDimensionId();
+                pos.dim = targetActor->getDimensionId().id;
             } else {
                 LOG_WRONG_ARG_TYPE(__FUNCTION__);
                 return Local<Value>();
@@ -838,7 +832,7 @@ Local<Value> EntityClass::distanceToSqr(const Arguments& args) {
 
         if (actor->getDimensionId().id != pos.dim) return Number::newNumber(INT_MAX);
 
-        return Number::newNumber(actor->distanceToSqr(pos.getVec3()));
+        return Number::newNumber(actor->getPosition().distanceToSqr(pos.getVec3()));
     }
     CATCH("Fail in distanceToSqr!")
 }
@@ -923,7 +917,7 @@ Local<Value> EntityClass::getBlockStandingOn(const Arguments&) {
         Actor* entity = get();
         if (!entity) return Local<Value>();
 
-        return BlockClass::newBlock(entity->getBlockPosCurrentlyStandingOn(nullptr), entity->getDimensionId());
+        return BlockClass::newBlock(entity->getBlockPosCurrentlyStandingOn(nullptr), entity->getDimensionId().id);
     }
     CATCH("Fail in getBlockStandingOn!");
 }
@@ -1152,7 +1146,6 @@ Local<Value> EntityClass::setUnderwaterMovementSpeed(const Arguments& args) {
 
         MutableAttributeWithContext attribute =
             entity->getMutableAttribute(SharedAttributes::UNDERWATER_MOVEMENT_SPEED());
-        auto& instance = attribute.mInstance;
         AttributeHelper::setCurrentValue(attribute, args[0].asNumber().toFloat());
 
         return Boolean::newBoolean(true);
@@ -1185,7 +1178,7 @@ Local<Value> EntityClass::setMaxHealth(const Arguments& args) {
         if (!entity) return Local<Value>();
 
         MutableAttributeWithContext attribute = entity->getMutableAttribute(SharedAttributes::HEALTH());
-        AttributeHelper::setCurrentValue(attribute, args[0].asNumber().toFloat());
+        AttributeHelper::setMaxValue(attribute, args[0].asNumber().toFloat());
 
         return Boolean::newBoolean(true);
     }
@@ -1387,10 +1380,10 @@ Local<Value> EntityClass::getBlockFromViewVector(const Arguments& args) {
             false,
             true,
             [&solidOnly, &fullOnly, &includeLiquid](BlockSource const&, Block const& block, bool) {
-                if (solidOnly && !block.mCachedComponentData->mUnkd6c5eb.as<bool>()) {
+                if (solidOnly && !block.mCachedComponentData->mIsSolid) {
                     return false;
                 }
-                if (fullOnly && !block.isSlabBlock()) {
+                if (fullOnly && !block.getBlockType().isSlabBlock()) {
                     return false;
                 }
                 if (!includeLiquid && BlockUtils::isLiquidSource(block)) {
@@ -1408,9 +1401,10 @@ Local<Value> EntityClass::getBlockFromViewVector(const Arguments& args) {
         } else {
             bp = res.mBlock;
         }
-        Block const&       bl     = actor->getDimensionBlockSource().getBlock(bp);
-        BlockLegacy const& legacy = bl.getLegacyBlock();
-        if (bl.isAir() || (legacy.mProperties == BlockProperty::None && legacy.mMaterial.mType == MaterialType::Any)) {
+        Block const&     bl     = actor->getDimensionBlockSource().getBlock(bp);
+        BlockType const& legacy = bl.getBlockType();
+        if (bl.isAir()
+            || (legacy.mProperties == BlockProperty::None && legacy.mMaterial.mType == MaterialType::Any)) {
             return Local<Value>();
         }
         return BlockClass::newBlock(bl, bp, actor->getDimensionId());
@@ -1434,7 +1428,7 @@ Local<Value> EntityClass::getBiomeId() {
         Actor* actor = get();
         if (!actor) return Local<Value>();
         auto& bio = actor->getDimensionBlockSource().getBiome(actor->getFeetBlockPos());
-        return Number::newNumber(bio.mId);
+        return Number::newNumber(bio.mId->mValue);
     }
     CATCH("Fail in getBiomeId!");
 }
@@ -1569,7 +1563,7 @@ Local<Value> McClass::getEntities(const Arguments& args) {
                 }
                 if (args.size() > 2) {
                     if (args[2].getKind() == ValueKind::kNumber) {
-                        dis = args[1].asNumber().toFloat();
+                        dis = args[2].asNumber().toFloat();
                     } else {
                         LOG_WRONG_ARG_TYPE(__FUNCTION__);
                         return Local<Value>();
@@ -1584,6 +1578,8 @@ Local<Value> McClass::getEntities(const Arguments& args) {
             LOG_TOO_FEW_ARGS(__FUNCTION__);
             return Local<Value>();
         }
+        aabb.max += dis;
+        aabb.min -= dis;
 
         auto arr       = Array::newArray();
         auto dimension = ll::service::getLevel()->getDimension(dim);
@@ -1592,13 +1588,13 @@ Local<Value> McClass::getEntities(const Arguments& args) {
             return Local<Value>();
         }
         BlockSource& bs         = dimension.lock()->getBlockSourceFromMainChunkSource();
-        auto         entityList = bs.getEntities(aabb, dis);
+        auto         entityList = bs.getEntities(aabb);
         for (auto i : entityList) {
             arr.add(EntityClass::newEntity(i));
         }
         return arr;
     }
-    CATCH("Fail in GetAllEntities");
+    CATCH("Fail in getEntities");
 }
 
 Local<Value> McClass::getEntity(const Arguments& args) {
@@ -1637,10 +1633,7 @@ Local<Value> McClass::cloneMob(const Arguments& args) {
                 IntPos* posObj = IntPos::extractPos(args[1]);
                 if (posObj->dim < 0) return Boolean::newBoolean(false);
                 else {
-                    pos.x   = posObj->x;
-                    pos.y   = posObj->y;
-                    pos.z   = posObj->z;
-                    pos.dim = posObj->dim;
+                    pos = *posObj;
                 }
             } else if (IsInstanceOf<FloatPos>(args[1])) {
                 // FloatPos
@@ -1699,10 +1692,7 @@ Local<Value> McClass::spawnMob(const Arguments& args) {
                 IntPos* posObj = IntPos::extractPos(args[1]);
                 if (posObj->dim < 0) return Boolean::newBoolean(false);
                 else {
-                    pos.x   = posObj->x;
-                    pos.y   = posObj->y;
-                    pos.z   = posObj->z;
-                    pos.dim = posObj->dim;
+                    pos = *posObj;
                 }
             } else if (IsInstanceOf<FloatPos>(args[1])) {
                 // FloatPos
@@ -1765,10 +1755,7 @@ Local<Value> McClass::explode(const Arguments& args) {
                 IntPos* posObj = IntPos::extractPos(args[0]);
                 if (posObj->dim < 0) return Boolean::newBoolean(false);
                 else {
-                    pos.x   = posObj->x;
-                    pos.y   = posObj->y;
-                    pos.z   = posObj->z;
-                    pos.dim = posObj->dim;
+                    pos = *posObj;
                 }
             } else if (IsInstanceOf<FloatPos>(args[0])) {
                 // FloatPos

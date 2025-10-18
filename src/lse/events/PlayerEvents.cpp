@@ -49,8 +49,6 @@
 #include "mc/world/level/block/actor/PistonBlockActor.h"
 #include "mc/world/level/block/block_events/BlockPlayerInteractEvent.h"
 #include "mc/world/level/dimension/Dimension.h"
-#include "mc/world/level/material/Material.h"
-#include "mc/world/phys/AABB.h"
 #include "mc/world/phys/HitResult.h"
 
 namespace lse::events::player {
@@ -124,7 +122,7 @@ LL_TYPE_INSTANCE_HOOK(
             if (!CallEvent(
                     EVENT_TYPES::onOpenContainer,
                     PlayerClass::newPlayer(static_cast<Player*>(actor)),
-                    BlockClass::newBlock(playerOpenContainerEvent.mBlockPos, actor->getDimensionId())
+                    BlockClass::newBlock(playerOpenContainerEvent.mBlockPos, actor->getDimensionId().id)
                 )) {
                 return EventResult::StopProcessing;
             }
@@ -140,19 +138,22 @@ LL_TYPE_INSTANCE_HOOK(
     ChestBlockActor,
     &ChestBlockActor::$stopOpen,
     void,
-    Player& player
+    Actor& actor
 ) {
     IF_LISTENED(EVENT_TYPES::onCloseContainer) {
-        if (!CallEvent(
-                EVENT_TYPES::onCloseContainer,
-                PlayerClass::newPlayer(&player),
-                BlockClass::newBlock(mPosition, player.getDimensionId())
-            )) {
-            return;
+        if (actor.isPlayer()) {
+            Player& player = static_cast<Player&>(actor);
+            if (!CallEvent(
+                    EVENT_TYPES::onCloseContainer,
+                    PlayerClass::newPlayer(&player),
+                    BlockClass::newBlock(mPosition, player.getDimensionId().id)
+                )) {
+                return;
+            }
         }
     }
     IF_LISTENED_END(EVENT_TYPES::onCloseContainer);
-    origin(player);
+    origin(actor);
 }
 
 LL_TYPE_INSTANCE_HOOK(
@@ -161,19 +162,22 @@ LL_TYPE_INSTANCE_HOOK(
     BarrelBlockActor,
     &BarrelBlockActor::$stopOpen,
     void,
-    Player& player
+    Actor& actor
 ) {
     IF_LISTENED(EVENT_TYPES::onCloseContainer) {
-        if (!CallEvent(
-                EVENT_TYPES::onCloseContainer,
-                PlayerClass::newPlayer(&player),
-                BlockClass::newBlock(mPosition, player.getDimensionId())
-            )) {
-            return;
+        if (actor.isPlayer()) {
+            Player& player = static_cast<Player&>(actor);
+            if (!CallEvent(
+                    EVENT_TYPES::onCloseContainer,
+                    PlayerClass::newPlayer(&player),
+                    BlockClass::newBlock(mPosition, player.getDimensionId().id)
+                )) {
+                return;
+            }
         }
     }
     IF_LISTENED_END(EVENT_TYPES::onCloseContainer);
-    origin(player);
+    origin(actor);
 }
 
 LL_TYPE_INSTANCE_HOOK(
@@ -218,7 +222,7 @@ LL_STATIC_HOOK(
         if (!CallEvent(
                 EVENT_TYPES::onAttackBlock,
                 PlayerClass::newPlayer(&player),
-                BlockClass::newBlock(pos, player.getDimensionId()),
+                BlockClass::newBlock(pos, player.getDimensionId().id),
                 !item.isNull() ? ItemClass::newItem(&const_cast<ItemStack&>(item)) : Local<Value>()
             )) {
             isCancelled = true;
@@ -229,7 +233,7 @@ LL_STATIC_HOOK(
         if (!CallEvent(
                 EVENT_TYPES::onStartDestroyBlock,
                 PlayerClass::newPlayer(&player),
-                BlockClass::newBlock(pos, player.getDimensionId())
+                BlockClass::newBlock(pos, player.getDimensionId().id)
             )) {
             isCancelled = true;
         }
@@ -254,7 +258,7 @@ LL_TYPE_INSTANCE_HOOK(
         if (!CallEvent(
                 EVENT_TYPES::onUseFrameBlock,
                 PlayerClass::newPlayer(&player),
-                BlockClass::newBlock(eventData.mPos, player.getDimensionId())
+                BlockClass::newBlock(eventData.mPos, player.getDimensionId().id)
             )) {
             return;
         }
@@ -276,7 +280,7 @@ LL_TYPE_INSTANCE_HOOK(
         if (!CallEvent(
                 EVENT_TYPES::onUseFrameBlock,
                 PlayerClass::newPlayer(player),
-                BlockClass::newBlock(pos, player->getDimensionId())
+                BlockClass::newBlock(pos, player->getDimensionId().id)
             )) {
             return false;
         }
@@ -330,7 +334,7 @@ LL_TYPE_INSTANCE_HOOK(
     ContainerScreenContext const& screenContext
 ) {
     IF_LISTENED(EVENT_TYPES::onOpenContainerScreen) {
-        if (!CallEvent(EVENT_TYPES::onOpenContainerScreen, PlayerClass::newPlayer(&mUnkecd0f2.as<Player&>()))) {
+        if (!CallEvent(EVENT_TYPES::onOpenContainerScreen, PlayerClass::newPlayer(&mPlayer))) {
             return;
         }
     }
@@ -374,7 +378,7 @@ LL_TYPE_INSTANCE_HOOK(
         if (!CallEvent(
                 EVENT_TYPES::onBedEnter,
                 PlayerClass::newPlayer(this),
-                IntPos::newPos(pos, this->getDimensionId())
+                IntPos::newPos(pos, this->getDimensionId().id)
             )) {
             return BedSleepingResult::Ok;
         }
@@ -460,9 +464,9 @@ LL_TYPE_INSTANCE_HOOK(
                 EVENT_TYPES::onUseBucketTake,
                 PlayerClass::newPlayer(&static_cast<Player&>(entity)),
                 ItemClass::newItem(&item),
-                BlockClass::newBlock(pos, entity.getDimensionId()),
+                BlockClass::newBlock(pos, entity.getDimensionId().id),
                 Number::newNumber(-1),
-                FloatPos::newPos(pos, entity.getDimensionId())
+                FloatPos::newPos(pos, entity.getDimensionId().id)
             )) {
             return false;
         }
@@ -486,9 +490,9 @@ LL_TYPE_INSTANCE_HOOK(
                 EVENT_TYPES::onUseBucketTake,
                 PlayerClass::newPlayer(&static_cast<Player&>(entity)),
                 ItemClass::newItem(&item),
-                BlockClass::newBlock(pos, entity.getDimensionId()),
+                BlockClass::newBlock(pos, entity.getDimensionId().id),
                 Number::newNumber(-1),
-                FloatPos::newPos(pos, entity.getDimensionId())
+                FloatPos::newPos(pos, entity.getDimensionId().id)
             )) {
             return false;
         }
@@ -517,7 +521,7 @@ LL_TYPE_INSTANCE_HOOK(
 //             ItemClass::newItem(&instance, false),
 //             EntityClass::newEntity(&entity),
 //             Number::newNumber(face),
-//             FloatPos::newPos(pos, entity.getDimensionId())
+//             FloatPos::newPos(pos, entity.getDimensionId().id)
 //         );
 //     }
 //     IF_LISTENED_END(EVENT_TYPES::onUseBucketTake);
@@ -537,23 +541,25 @@ LL_TYPE_INSTANCE_HOOK(ConsumeTotemHook, HookPriority::Normal, Player, &Player::$
 LL_TYPE_INSTANCE_HOOK(
     SetArmorHook,
     HookPriority::Normal,
-    ServerPlayer,
-    &ServerPlayer::$setArmor,
+    Actor,
+    &Actor::$setArmor,
     void,
     SharedTypes::Legacy::ArmorSlot const armorSlot,
     ItemStack const&                     item
 ) {
-    IF_LISTENED(EVENT_TYPES::onSetArmor) {
-        if (!CallEvent(
-                EVENT_TYPES::onSetArmor,
-                PlayerClass::newPlayer(this),
-                Number::newNumber((int)armorSlot),
-                ItemClass::newItem(&const_cast<ItemStack&>(item))
-            )) {
-            return;
+    if (isPlayer()) {
+        IF_LISTENED(EVENT_TYPES::onSetArmor) {
+            if (!CallEvent(
+                    EVENT_TYPES::onSetArmor,
+                    PlayerClass::newPlayer(reinterpret_cast<Player*>(this)),
+                    Number::newNumber((int)armorSlot),
+                    ItemClass::newItem(&const_cast<ItemStack&>(item))
+                )) {
+                return;
+            }
         }
+        IF_LISTENED_END(EVENT_TYPES::onSetArmor);
     }
-    IF_LISTENED_END(EVENT_TYPES::onSetArmor);
     origin(armorSlot, item);
 }
 
@@ -571,7 +577,7 @@ LL_TYPE_INSTANCE_HOOK(
                 EVENT_TYPES::onPlayerInteractEntity,
                 PlayerClass::newPlayer(this),
                 EntityClass::newEntity(&actor),
-                FloatPos::newPos(location, getDimensionId())
+                FloatPos::newPos(location, getDimensionId().id)
             )) {
             return false;
         }
@@ -583,44 +589,48 @@ LL_TYPE_INSTANCE_HOOK(
 LL_TYPE_INSTANCE_HOOK(
     AddEffectHook,
     HookPriority::Normal,
-    Player,
-    &Player::addEffect,
+    Actor,
+    &Actor::addEffect,
     void,
     ::MobEffectInstance const& effect
 ) {
-    IF_LISTENED(EVENT_TYPES::onEffectAdded) {
-        if (!CallEvent(
-                EVENT_TYPES::onEffectAdded,
-                PlayerClass::newPlayer(this),
-                String::newString(MobEffect::mMobEffects()[effect.mId]->mComponentName->getString()),
-                Number::newNumber(effect.mAmplifier),
-                Number::newNumber(effect.mDuration->mValue)
-            )) {
-            return;
+    if (isPlayer()) {
+        IF_LISTENED(EVENT_TYPES::onEffectAdded) {
+            if (!CallEvent(
+                    EVENT_TYPES::onEffectAdded,
+                    PlayerClass::newPlayer(reinterpret_cast<Player*>(this)),
+                    String::newString(MobEffect::mMobEffects()[effect.mId]->mComponentName->getString()),
+                    Number::newNumber(effect.mAmplifier),
+                    Number::newNumber(effect.mDuration->mValue)
+                )) {
+                return;
+            }
         }
+        IF_LISTENED_END(EVENT_TYPES::onEffectAdded);
     }
-    IF_LISTENED_END(EVENT_TYPES::onEffectAdded);
     origin(effect);
 }
 
 LL_TYPE_INSTANCE_HOOK(
     RemoveEffectHook,
     HookPriority::Normal,
-    Player,
-    &Player::$onEffectRemoved,
+    Actor,
+    &Actor::$onEffectRemoved,
     void,
     ::MobEffectInstance& effect
 ) {
-    IF_LISTENED(EVENT_TYPES::onEffectRemoved) {
-        if (!CallEvent(
-                EVENT_TYPES::onEffectRemoved,
-                PlayerClass::newPlayer(this),
-                String::newString(MobEffect::mMobEffects()[effect.mId]->mComponentName->getString())
-            )) {
-            return;
+    if (isPlayer()) {
+        IF_LISTENED(EVENT_TYPES::onEffectRemoved) {
+            if (!CallEvent(
+                    EVENT_TYPES::onEffectRemoved,
+                    PlayerClass::newPlayer(reinterpret_cast<Player*>(this)),
+                    String::newString(MobEffect::mMobEffects()[effect.mId]->mComponentName->getString())
+                )) {
+                return;
+            }
         }
+        IF_LISTENED_END(EVENT_TYPES::onEffectRemoved);
     }
-    IF_LISTENED_END(EVENT_TYPES::onEffectRemoved);
     origin(effect);
 }
 
